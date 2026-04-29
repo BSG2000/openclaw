@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import { SessionManager } from "@mariozechner/pi-coding-agent";
 import {
@@ -799,6 +800,11 @@ function createCodexNativeHookRelay(params: {
   }
   return registerNativeHookRelay({
     provider: "codex",
+    relayId: buildCodexNativeHookRelayId({
+      agentId: params.agentId,
+      sessionId: params.sessionId,
+      sessionKey: params.sessionKey,
+    }),
     ...(params.agentId ? { agentId: params.agentId } : {}),
     sessionId: params.sessionId,
     ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
@@ -810,6 +816,20 @@ function createCodexNativeHookRelay(params: {
       timeoutMs: params.options?.gatewayTimeoutMs,
     },
   });
+}
+
+function buildCodexNativeHookRelayId(params: {
+  agentId: string | undefined;
+  sessionId: string;
+  sessionKey: string | undefined;
+}): string {
+  const hash = createHash("sha256");
+  hash.update("openclaw:codex:native-hook-relay:v1");
+  hash.update("\0");
+  hash.update(params.agentId?.trim() || "");
+  hash.update("\0");
+  hash.update(params.sessionKey?.trim() || params.sessionId);
+  return `codex-${hash.digest("hex").slice(0, 40)}`;
 }
 
 function interruptCodexTurnBestEffort(
@@ -1075,6 +1095,7 @@ function handleApprovalRequest(params: {
 }
 
 export const __testing = {
+  buildCodexNativeHookRelayId,
   filterToolsForVisionInputs,
   ...createCodexAppServerClientFactoryTestHooks((factory) => {
     clientFactory = factory;
