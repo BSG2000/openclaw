@@ -2,21 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   ensureBundledPluginRuntimeDeps,
-  materializeBundledRuntimeMirrorDistFile,
   resolveBundledRuntimeDependencyInstallRootPlan,
   resolveBundledRuntimeDependencyPackageRoot,
   registerBundledRuntimeDependencyNodePath,
-  shouldMaterializeBundledRuntimeMirrorDistFile,
   withBundledRuntimeDepsFilesystemLock,
 } from "./bundled-runtime-deps.js";
 import {
-  copyBundledPluginRuntimeRoot,
+  materializeBundledRuntimeMirrorFile,
   precomputeBundledRuntimeMirrorMetadata,
   refreshBundledPluginRuntimeMirrorRoot,
   type PrecomputedBundledRuntimeMirrorMetadata,
 } from "./bundled-runtime-mirror.js";
 
-const bundledRuntimeDepsRetainSpecsByInstallRoot = new Map<string, readonly string[]>();
 const BUNDLED_RUNTIME_MIRROR_LOCK_DIR = ".openclaw-runtime-mirror.lock";
 
 export function isBuiltBundledPluginRuntimeRoot(pluginRoot: string): boolean {
@@ -40,20 +37,12 @@ export function prepareBundledPluginRuntimeRoot(params: {
     env,
   });
   const installRoot = installRootPlan.installRoot;
-  const retainSpecs = bundledRuntimeDepsRetainSpecsByInstallRoot.get(installRoot) ?? [];
   const depsInstallResult = ensureBundledPluginRuntimeDeps({
     pluginId: params.pluginId,
     pluginRoot: params.pluginRoot,
     env,
-    retainSpecs,
   });
   if (depsInstallResult.installedSpecs.length > 0) {
-    bundledRuntimeDepsRetainSpecsByInstallRoot.set(
-      installRoot,
-      [...new Set([...retainSpecs, ...depsInstallResult.retainSpecs])].toSorted((left, right) =>
-        left.localeCompare(right),
-      ),
-    );
     params.logInstalled?.(depsInstallResult.installedSpecs);
   }
   if (path.resolve(installRoot) === path.resolve(params.pluginRoot)) {
@@ -73,19 +62,23 @@ export function prepareBundledPluginRuntimeRoot(params: {
   });
   return {
     pluginRoot: mirrorRoot,
-    modulePath: remapBundledPluginRuntimePath({
-      source: params.modulePath,
-      pluginRoot: params.pluginRoot,
-      mirroredRoot: mirrorRoot,
-    }),
+    modulePath:
+      remapBundledPluginRuntimePath({
+        source: params.modulePath,
+        pluginRoot: params.pluginRoot,
+        mirroredRoot: mirrorRoot,
+      }) ?? params.modulePath,
   };
 }
 
-function remapBundledPluginRuntimePath(params: {
-  source: string;
+export function remapBundledPluginRuntimePath(params: {
+  source: string | undefined;
   pluginRoot: string;
   mirroredRoot: string;
-}): string {
+}): string | undefined {
+  if (!params.source) {
+    return undefined;
+  }
   const relativePath = path.relative(params.pluginRoot, params.source);
   if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
     return params.source;
@@ -93,7 +86,7 @@ function remapBundledPluginRuntimePath(params: {
   return path.join(params.mirroredRoot, relativePath);
 }
 
-function mirrorBundledPluginRuntimeRoot(params: {
+export function mirrorBundledPluginRuntimeRoot(params: {
   pluginId: string;
   pluginRoot: string;
   installRoot: string;
@@ -162,11 +155,14 @@ function prepareBundledPluginRuntimeDistMirror(params: {
   ensureBundledRuntimeMirrorDirectory(mirrorDistRoot);
   fs.mkdirSync(mirrorExtensionsRoot, { recursive: true, mode: 0o755 });
   ensureBundledRuntimeDistPackageJson(mirrorDistRoot);
-  mirrorBundledRuntimeDistRootEntries({
-    sourceDistRoot,
-    mirrorDistRoot,
-  });
-  if (sourceDistRootName === "dist-runtime") {
+  const builtRuntimeRoot = isBuiltBundledPluginRuntimeRoot(params.pluginRoot);
+  if (builtRuntimeRoot) {
+    mirrorBundledRuntimeDistRootEntries({
+      sourceDistRoot,
+      mirrorDistRoot,
+    });
+  }
+  if (builtRuntimeRoot && sourceDistRootName === "dist-runtime") {
     mirrorCanonicalBundledRuntimeDistRoot({
       installRoot: params.installRoot,
       pluginRoot: params.pluginRoot,
@@ -206,24 +202,19 @@ function mirrorBundledRuntimeDistRootEntries(params: {
     if (path.resolve(sourcePath) === path.resolve(targetPath)) {
       continue;
     }
-    if (entry.isFile() && shouldMaterializeBundledRuntimeMirrorDistFile(sourcePath)) {
-      materializeBundledRuntimeMirrorDistFile(sourcePath, targetPath);
+    const sourceStat = fs.statSync(sourcePath);
+    if (sourceStat.isDirectory()) {
+      refreshBundledPluginRuntimeMirrorRoot({
+        pluginId: `openclaw-dist:${entry.name}`,
+        sourceRoot: sourcePath,
+        targetRoot: targetPath,
+        tempDirParent: params.mirrorDistRoot,
+      });
       continue;
     }
-    if (fs.existsSync(targetPath)) {
+    if (sourceStat.isFile()) {
+      materializeBundledRuntimeMirrorFile(sourcePath, targetPath);
       continue;
-    }
-    try {
-      fs.symlinkSync(sourcePath, targetPath, entry.isDirectory() ? "junction" : "file");
-    } catch {
-      if (fs.existsSync(targetPath)) {
-        continue;
-      }
-      if (entry.isDirectory()) {
-        copyBundledPluginRuntimeRoot(sourcePath, targetPath);
-      } else if (entry.isFile()) {
-        fs.copyFileSync(sourcePath, targetPath);
-      }
     }
   }
 }
@@ -336,7 +327,7 @@ function writeRuntimeModuleWrapper(sourcePath: string, targetPath: string): void
   fs.writeFileSync(targetPath, content, "utf8");
 }
 
-function ensureOpenClawPluginSdkAlias(distRoot: string): void {
+export function ensureOpenClawPluginSdkAlias(distRoot: string): void {
   const pluginSdkDir = path.join(distRoot, "plugin-sdk");
   if (!fs.existsSync(pluginSdkDir)) {
     return;

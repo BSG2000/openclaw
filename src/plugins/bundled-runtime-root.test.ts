@@ -35,6 +35,45 @@ function isBigIntStatOptions(options: unknown): boolean {
   );
 }
 
+function writeRuntimeDepsInstallManifest(
+  installRoot: string,
+  dependencies: Record<string, string>,
+): void {
+  fs.mkdirSync(installRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(installRoot, "package.json"),
+    JSON.stringify(
+      {
+        name: "openclaw-runtime-deps-install",
+        private: true,
+        dependencies: Object.fromEntries(
+          Object.entries(dependencies).toSorted(([left], [right]) => left.localeCompare(right)),
+        ),
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+}
+
+function writeRuntimeDepPackage(installRoot: string, name: string, version: string): void {
+  const depRoot = path.join(installRoot, "node_modules", ...name.split("/"));
+  fs.mkdirSync(depRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(depRoot, "package.json"),
+    JSON.stringify({ name, version, type: "module" }),
+    "utf8",
+  );
+}
+
+function seedRuntimeDepsInstall(installRoot: string, dependencies: Record<string, string>): void {
+  writeRuntimeDepsInstallManifest(installRoot, dependencies);
+  for (const [name, version] of Object.entries(dependencies)) {
+    writeRuntimeDepPackage(installRoot, name, version);
+  }
+}
+
 describe("prepareBundledPluginRuntimeRoot", () => {
   it("materializes root JavaScript chunks in external mirrors", () => {
     const packageRoot = makeTempRoot();
@@ -73,6 +112,12 @@ describe("prepareBundledPluginRuntimeRoot", () => {
       `const text = 'not an import: from "zod"'; export const marker = text;\n`,
       "utf8",
     );
+    fs.mkdirSync(path.join(packageRoot, "dist", "runtime-dir"), { recursive: true });
+    fs.writeFileSync(
+      path.join(packageRoot, "dist", "runtime-dir", "helper.js"),
+      "export const helper = 'mirrored-dir';\n",
+      "utf8",
+    );
     fs.writeFileSync(
       path.join(pluginRoot, "index.js"),
       `import { marker } from "../../pw-ai.js"; export default { id: "browser", marker };\n`,
@@ -98,17 +143,7 @@ describe("prepareBundledPluginRuntimeRoot", () => {
 
     const installRoot = resolveBundledRuntimeDependencyInstallRoot(pluginRoot, { env });
     const depRoot = path.join(installRoot, "node_modules", "playwright-core");
-    fs.mkdirSync(depRoot, { recursive: true });
-    fs.writeFileSync(
-      path.join(depRoot, "package.json"),
-      JSON.stringify({
-        name: "playwright-core",
-        version: "1.0.0",
-        type: "module",
-        exports: "./index.js",
-      }),
-      "utf8",
-    );
+    seedRuntimeDepsInstall(installRoot, { "playwright-core": "1.0.0" });
     fs.writeFileSync(path.join(depRoot, "index.js"), "export const marker = 'stage-ok';\n", "utf8");
 
     const staleMirrorChunk = path.join(installRoot, "dist", "pw-ai.js");
@@ -141,84 +176,31 @@ describe("prepareBundledPluginRuntimeRoot", () => {
       false,
     );
     expect(fs.lstatSync(path.join(installRoot, "dist", "config-runtime.js")).isSymbolicLink()).toBe(
-      true,
+      false,
     );
     expect(fs.lstatSync(path.join(installRoot, "dist", "string-runtime.js")).isSymbolicLink()).toBe(
       false,
     );
-  });
-
-  it("reuses root chunk materialization decisions across bundled plugin mirrors", () => {
-    const packageRoot = makeTempRoot();
-    const stageDir = makeTempRoot();
-    const env = { ...process.env, OPENCLAW_PLUGIN_STAGE_DIR: stageDir };
-    const rootChunk = path.join(packageRoot, "dist", "shared-runtime.js");
-    const externalChunk = path.join(packageRoot, "dist", "external-runtime.js");
-    fs.mkdirSync(path.join(packageRoot, "dist", "extensions"), { recursive: true });
+    expect(fs.lstatSync(path.join(installRoot, "dist", "runtime-dir")).isSymbolicLink()).toBe(
+      false,
+    );
+    expect(
+      fs.lstatSync(path.join(installRoot, "dist", "runtime-dir", "helper.js")).isSymbolicLink(),
+    ).toBe(false);
     fs.writeFileSync(
-      path.join(packageRoot, "package.json"),
-      JSON.stringify({ name: "openclaw", version: "2026.4.27", type: "module" }),
+      path.join(packageRoot, "dist", "shared-runtime.js"),
+      "export const shared = 'updated-mirror';\n",
       "utf8",
     );
-    fs.writeFileSync(rootChunk, "export const shared = 'root';\n", "utf8");
-    fs.writeFileSync(externalChunk, "import zod from 'zod'; export const schema = zod;\n", "utf8");
-
-    for (const pluginId of ["alpha", "beta"]) {
-      const pluginRoot = path.join(packageRoot, "dist", "extensions", pluginId);
-      fs.mkdirSync(pluginRoot, { recursive: true });
-      fs.writeFileSync(
-        path.join(pluginRoot, "index.js"),
-        `import { shared } from "../../shared-runtime.js"; export default { id: ${JSON.stringify(pluginId)}, shared };\n`,
-        "utf8",
-      );
-      fs.writeFileSync(
-        path.join(pluginRoot, "package.json"),
-        JSON.stringify(
-          {
-            name: `@openclaw/${pluginId}`,
-            version: "1.0.0",
-            type: "module",
-            dependencies: { [`${pluginId}-runtime`]: "1.0.0" },
-            openclaw: { extensions: ["./index.js"] },
-          },
-          null,
-          2,
-        ),
-        "utf8",
-      );
-      const installRoot = resolveBundledRuntimeDependencyInstallRoot(pluginRoot, { env });
-      fs.mkdirSync(path.join(installRoot, "node_modules", `${pluginId}-runtime`), {
-        recursive: true,
-      });
-      fs.writeFileSync(
-        path.join(installRoot, "node_modules", `${pluginId}-runtime`, "package.json"),
-        JSON.stringify({ name: `${pluginId}-runtime`, version: "1.0.0", type: "module" }),
-        "utf8",
-      );
-    }
-
-    const realReadFileSync = fs.readFileSync.bind(fs);
-    const readPaths: string[] = [];
-    vi.spyOn(fs, "readFileSync").mockImplementation(((target, options) => {
-      const targetPath = target.toString();
-      if (targetPath === rootChunk || targetPath === externalChunk) {
-        readPaths.push(targetPath);
-      }
-      return realReadFileSync(target, options as never);
-    }) as typeof fs.readFileSync);
-
-    for (const pluginId of ["alpha", "beta"]) {
-      const pluginRoot = path.join(packageRoot, "dist", "extensions", pluginId);
-      prepareBundledPluginRuntimeRoot({
-        pluginId,
-        pluginRoot,
-        modulePath: path.join(pluginRoot, "index.js"),
-        env,
-      });
-    }
-
-    expect(readPaths.filter((entry) => entry === rootChunk)).toHaveLength(1);
-    expect(readPaths.filter((entry) => entry === externalChunk)).toHaveLength(1);
+    prepareBundledPluginRuntimeRoot({
+      pluginId: "browser",
+      pluginRoot,
+      modulePath: path.join(pluginRoot, "index.js"),
+      env,
+    });
+    expect(fs.readFileSync(path.join(installRoot, "dist", "shared-runtime.js"), "utf8")).toContain(
+      "updated-mirror",
+    );
   });
 
   it("does not copy staged runtime mirror dist files onto themselves", () => {
@@ -254,12 +236,7 @@ describe("prepareBundledPluginRuntimeRoot", () => {
       ),
       "utf8",
     );
-    fs.mkdirSync(path.join(installRoot, "node_modules", "qqbot-runtime"), { recursive: true });
-    fs.writeFileSync(
-      path.join(installRoot, "node_modules", "qqbot-runtime", "package.json"),
-      JSON.stringify({ name: "qqbot-runtime", version: "1.0.0", type: "module" }),
-      "utf8",
-    );
+    seedRuntimeDepsInstall(installRoot, { "qqbot-runtime": "1.0.0" });
 
     const prepared = prepareBundledPluginRuntimeRoot({
       pluginId: "qqbot",
@@ -337,12 +314,7 @@ describe("prepareBundledPluginRuntimeRoot", () => {
       "utf8",
     );
     const installRoot = resolveBundledRuntimeDependencyInstallRoot(runtimePluginRoot, { env });
-    fs.mkdirSync(path.join(installRoot, "node_modules", "qqbot-runtime"), { recursive: true });
-    fs.writeFileSync(
-      path.join(installRoot, "node_modules", "qqbot-runtime", "package.json"),
-      JSON.stringify({ name: "qqbot-runtime", version: "1.0.0", type: "module" }),
-      "utf8",
-    );
+    seedRuntimeDepsInstall(installRoot, { "qqbot-runtime": "1.0.0" });
 
     const prepared = prepareBundledPluginRuntimeRoot({
       pluginId: "qqbot",
@@ -402,12 +374,7 @@ describe("prepareBundledPluginRuntimeRoot", () => {
       "utf8",
     );
     const installRoot = resolveBundledRuntimeDependencyInstallRoot(runtimePluginRoot, { env });
-    fs.mkdirSync(path.join(installRoot, "node_modules", "qqbot-runtime"), { recursive: true });
-    fs.writeFileSync(
-      path.join(installRoot, "node_modules", "qqbot-runtime", "package.json"),
-      JSON.stringify({ name: "qqbot-runtime", version: "1.0.0", type: "module" }),
-      "utf8",
-    );
+    seedRuntimeDepsInstall(installRoot, { "qqbot-runtime": "1.0.0" });
 
     const lockPath = path.join(installRoot, ".openclaw-runtime-mirror.lock");
     const fingerprintLockStates: Array<{ source: "runtime" | "canonical"; locked: boolean }> = [];
@@ -464,12 +431,7 @@ describe("prepareBundledPluginRuntimeRoot", () => {
       "utf8",
     );
     const installRoot = resolveBundledRuntimeDependencyInstallRoot(pluginRoot, { env });
-    fs.mkdirSync(path.join(installRoot, "node_modules", "whatsapp-runtime"), { recursive: true });
-    fs.writeFileSync(
-      path.join(installRoot, "node_modules", "whatsapp-runtime", "package.json"),
-      JSON.stringify({ name: "whatsapp-runtime", version: "1.0.0", type: "module" }),
-      "utf8",
-    );
+    seedRuntimeDepsInstall(installRoot, { "whatsapp-runtime": "1.0.0" });
 
     const prepared = prepareBundledPluginRuntimeRoot({
       pluginId: "whatsapp",
@@ -523,12 +485,7 @@ describe("prepareBundledPluginRuntimeRoot", () => {
       "utf8",
     );
     const installRoot = resolveBundledRuntimeDependencyInstallRoot(pluginRoot, { env });
-    fs.mkdirSync(path.join(installRoot, "node_modules", "whatsapp-runtime"), { recursive: true });
-    fs.writeFileSync(
-      path.join(installRoot, "node_modules", "whatsapp-runtime", "package.json"),
-      JSON.stringify({ name: "whatsapp-runtime", version: "1.0.0", type: "module" }),
-      "utf8",
-    );
+    seedRuntimeDepsInstall(installRoot, { "whatsapp-runtime": "1.0.0" });
 
     const prepared = prepareBundledPluginRuntimeRoot({
       pluginId: "whatsapp",
