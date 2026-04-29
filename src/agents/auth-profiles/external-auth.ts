@@ -1,3 +1,4 @@
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { ProviderExternalAuthProfile } from "../../plugins/provider-external-auth.types.js";
 import { resolveExternalAuthProfilesWithPlugins } from "../../plugins/provider-runtime.js";
 import * as externalCliSync from "./external-cli-sync.js";
@@ -10,6 +11,15 @@ import type { AuthProfileStore, OAuthCredential } from "./types.js";
 
 type ExternalAuthProfileMap = Map<string, ProviderExternalAuthProfile>;
 type ResolveExternalAuthProfiles = typeof resolveExternalAuthProfilesWithPlugins;
+
+export type ExternalAuthProfileOverlayOptions = {
+  agentDir?: string;
+  allowKeychainPrompt?: boolean;
+  config?: OpenClawConfig;
+  eligibleProfileIds?: Iterable<string>;
+  eligibleProviderIds?: Iterable<string>;
+  env?: NodeJS.ProcessEnv;
+};
 
 let resolveExternalAuthProfilesForRuntime: ResolveExternalAuthProfiles | undefined;
 
@@ -36,17 +46,17 @@ function normalizeExternalAuthProfile(
 
 function resolveExternalAuthProfileMap(params: {
   store: AuthProfileStore;
-  agentDir?: string;
-  env?: NodeJS.ProcessEnv;
+  options?: ExternalAuthProfileOverlayOptions;
 }): ExternalAuthProfileMap {
-  const env = params.env ?? process.env;
+  const env = params.options?.env ?? process.env;
   const resolveProfiles =
     resolveExternalAuthProfilesForRuntime ?? resolveExternalAuthProfilesWithPlugins;
   const profiles = resolveProfiles({
     env,
+    config: params.options?.config,
     context: {
-      config: undefined,
-      agentDir: params.agentDir,
+      config: params.options?.config,
+      agentDir: params.options?.agentDir,
       workspaceDir: undefined,
       env,
       store: params.store,
@@ -54,7 +64,12 @@ function resolveExternalAuthProfileMap(params: {
   });
 
   const resolved: ExternalAuthProfileMap = new Map();
-  const cliProfiles = externalCliSync.resolveExternalCliAuthProfiles?.(params.store) ?? [];
+  const cliProfiles =
+    externalCliSync.resolveExternalCliAuthProfiles?.(params.store, {
+      allowKeychainPrompt: params.options?.allowKeychainPrompt,
+      eligibleProfileIds: params.options?.eligibleProfileIds,
+      eligibleProviderIds: params.options?.eligibleProviderIds,
+    }) ?? [];
   for (const profile of cliProfiles) {
     resolved.set(profile.profileId, {
       profileId: profile.profileId,
@@ -74,26 +89,23 @@ function resolveExternalAuthProfileMap(params: {
 
 function listRuntimeExternalAuthProfiles(params: {
   store: AuthProfileStore;
-  agentDir?: string;
-  env?: NodeJS.ProcessEnv;
+  options?: ExternalAuthProfileOverlayOptions;
 }): RuntimeExternalOAuthProfile[] {
   return Array.from(
     resolveExternalAuthProfileMap({
       store: params.store,
-      agentDir: params.agentDir,
-      env: params.env,
+      options: params.options,
     }).values(),
   );
 }
 
 export function overlayExternalAuthProfiles(
   store: AuthProfileStore,
-  params?: { agentDir?: string; env?: NodeJS.ProcessEnv },
+  params?: ExternalAuthProfileOverlayOptions,
 ): AuthProfileStore {
   const profiles = listRuntimeExternalAuthProfiles({
     store,
-    agentDir: params?.agentDir,
-    env: params?.env,
+    options: params,
   });
   return overlayRuntimeExternalOAuthProfiles(store, profiles);
 }
@@ -103,12 +115,22 @@ export function shouldPersistExternalAuthProfile(params: {
   profileId: string;
   credential: OAuthCredential;
   agentDir?: string;
+  allowKeychainPrompt?: boolean;
+  config?: OpenClawConfig;
+  eligibleProfileIds?: Iterable<string>;
+  eligibleProviderIds?: Iterable<string>;
   env?: NodeJS.ProcessEnv;
 }): boolean {
   const profiles = listRuntimeExternalAuthProfiles({
     store: params.store,
-    agentDir: params.agentDir,
-    env: params.env,
+    options: {
+      agentDir: params.agentDir,
+      allowKeychainPrompt: params.allowKeychainPrompt,
+      config: params.config,
+      eligibleProfileIds: params.eligibleProfileIds,
+      eligibleProviderIds: params.eligibleProviderIds,
+      env: params.env,
+    },
   });
   return shouldPersistRuntimeExternalOAuthProfile({
     profileId: params.profileId,

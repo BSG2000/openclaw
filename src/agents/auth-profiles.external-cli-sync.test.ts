@@ -3,9 +3,13 @@ import type { AuthProfileStore, OAuthCredential } from "./auth-profiles/types.js
 import type { ClaudeCliCredential } from "./cli-credentials.js";
 
 const mocks = vi.hoisted(() => ({
-  readClaudeCliCredentialsCached: vi.fn<() => ClaudeCliCredential | null>(() => null),
-  readCodexCliCredentialsCached: vi.fn<() => OAuthCredential | null>(() => null),
-  readMiniMaxCliCredentialsCached: vi.fn<() => OAuthCredential | null>(() => null),
+  readClaudeCliCredentialsCached: vi.fn<(_options?: unknown) => ClaudeCliCredential | null>(
+    () => null,
+  ),
+  readCodexCliCredentialsCached: vi.fn<(_options?: unknown) => OAuthCredential | null>(() => null),
+  readMiniMaxCliCredentialsCached: vi.fn<(_options?: unknown) => OAuthCredential | null>(
+    () => null,
+  ),
 }));
 
 let readManagedExternalCliCredential: typeof import("./auth-profiles/external-cli-sync.js").readManagedExternalCliCredential;
@@ -267,6 +271,67 @@ describe("external cli oauth resolution", () => {
     ]);
   });
 
+  it("does not read unrelated external CLIs when provider scope is restrictive", () => {
+    mocks.readCodexCliCredentialsCached.mockReturnValue(
+      makeOAuthCredential({ provider: "openai-codex" }),
+    );
+    mocks.readClaudeCliCredentialsCached.mockReturnValue({
+      type: "oauth",
+      provider: "anthropic",
+      access: "claude-cli-access",
+      refresh: "claude-cli-refresh",
+      expires: Date.now() + 5 * 24 * 60 * 60_000,
+    });
+    mocks.readMiniMaxCliCredentialsCached.mockReturnValue(
+      makeOAuthCredential({ provider: "minimax-portal" }),
+    );
+
+    const profiles = resolveExternalCliAuthProfiles(makeStore(), {
+      eligibleProviderIds: ["opencode-go"],
+      eligibleProfileIds: [],
+    });
+
+    expect(profiles).toEqual([]);
+    expect(mocks.readCodexCliCredentialsCached).not.toHaveBeenCalled();
+    expect(mocks.readClaudeCliCredentialsCached).not.toHaveBeenCalled();
+    expect(mocks.readMiniMaxCliCredentialsCached).not.toHaveBeenCalled();
+  });
+
+  it("keeps persisted auth order profiles eligible even when provider scope is restrictive", () => {
+    mocks.readClaudeCliCredentialsCached.mockReturnValue({
+      type: "oauth",
+      provider: "anthropic",
+      access: "claude-cli-access",
+      refresh: "claude-cli-refresh",
+      expires: Date.now() + 5 * 24 * 60 * 60_000,
+    });
+
+    const profiles = resolveExternalCliAuthProfiles(
+      {
+        version: 1,
+        profiles: {},
+        order: {
+          "claude-cli": [CLAUDE_CLI_PROFILE_ID],
+        },
+      },
+      {
+        eligibleProviderIds: ["opencode-go"],
+        eligibleProfileIds: [],
+      },
+    );
+
+    expect(profiles).toEqual([
+      {
+        profileId: CLAUDE_CLI_PROFILE_ID,
+        credential: expect.objectContaining({
+          provider: "claude-cli",
+          access: "claude-cli-access",
+          refresh: "claude-cli-refresh",
+        }),
+      },
+    ]);
+  });
+
   it("keeps any existing default codex oauth over Codex CLI bootstrap credentials", () => {
     mocks.readCodexCliCredentialsCached.mockReturnValue(
       makeOAuthCredential({
@@ -329,6 +394,46 @@ describe("external cli oauth resolution", () => {
         }),
       },
     ]);
+  });
+
+  it("passes no-prompt policy to configured Claude CLI reads", () => {
+    mocks.readClaudeCliCredentialsCached.mockReturnValue({
+      type: "oauth",
+      provider: "anthropic",
+      access: "claude-cli-access",
+      refresh: "claude-cli-refresh",
+      expires: Date.now() + 5 * 24 * 60 * 60_000,
+    });
+
+    const profiles = resolveExternalCliAuthProfiles(makeStore(), {
+      allowKeychainPrompt: false,
+      eligibleProviderIds: ["claude-cli"],
+    });
+
+    expect(profiles).toHaveLength(1);
+    expect(mocks.readClaudeCliCredentialsCached).toHaveBeenCalledWith(
+      expect.objectContaining({ allowKeychainPrompt: false }),
+    );
+  });
+
+  it("passes no-prompt policy to configured Codex CLI reads", () => {
+    mocks.readCodexCliCredentialsCached.mockReturnValue(
+      makeOAuthCredential({
+        provider: "openai-codex",
+        access: "codex-cli-access",
+        refresh: "codex-cli-refresh",
+      }),
+    );
+
+    const profiles = resolveExternalCliAuthProfiles(makeStore(), {
+      allowKeychainPrompt: false,
+      eligibleProviderIds: ["openai-codex"],
+    });
+
+    expect(profiles).toHaveLength(1);
+    expect(mocks.readCodexCliCredentialsCached).toHaveBeenCalledWith(
+      expect.objectContaining({ allowKeychainPrompt: false }),
+    );
   });
 
   it("ignores Claude CLI token credentials", () => {

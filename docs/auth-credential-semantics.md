@@ -62,6 +62,15 @@ Token credentials (`type: "token"`) support inline `token` and/or `tokenRef`.
   candidate for it, `models status --probe` reports `status: no_model` with
   `reasonCode: no_model`.
 
+## External CLI credential discovery
+
+- Runtime-only credentials owned by external CLIs are discovered only when the
+  provider, runtime, or auth profile is in scope for the current operation, or
+  when a stored local profile for that external source already exists.
+- Read-only/status paths pass `allowKeychainPrompt: false`; they may reuse a
+  positive in-memory Keychain credential that was already read interactively,
+  but they must not initiate a new Keychain prompt.
+
 ## OAuth SecretRef Policy Guard
 
 - SecretRef input is for static credentials only.

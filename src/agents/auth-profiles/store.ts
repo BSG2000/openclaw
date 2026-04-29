@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { withFileLock } from "../../infra/file-lock.js";
 import { saveJsonFile } from "../../infra/json-file.js";
 import {
@@ -34,6 +35,9 @@ import type { AuthProfileStore } from "./types.js";
 
 type LoadAuthProfileStoreOptions = {
   allowKeychainPrompt?: boolean;
+  config?: OpenClawConfig;
+  eligibleExternalAuthProfileIds?: Iterable<string>;
+  eligibleExternalAuthProviderIds?: Iterable<string>;
   readOnly?: boolean;
   syncExternalCli?: boolean;
 };
@@ -269,12 +273,22 @@ export function loadAuthProfileStoreForRuntime(
   const authPath = resolveAuthStorePath(agentDir);
   const mainAuthPath = resolveAuthStorePath();
   if (!agentDir || authPath === mainAuthPath) {
-    return overlayExternalAuthProfiles(store, { agentDir });
+    return overlayExternalAuthProfiles(store, {
+      agentDir,
+      allowKeychainPrompt: options?.allowKeychainPrompt,
+      config: options?.config,
+      eligibleProfileIds: options?.eligibleExternalAuthProfileIds,
+      eligibleProviderIds: options?.eligibleExternalAuthProviderIds,
+    });
   }
 
   const mainStore = loadAuthProfileStoreForAgent(undefined, options);
   return overlayExternalAuthProfiles(mergeAuthProfileStores(mainStore, store), {
     agentDir,
+    allowKeychainPrompt: options?.allowKeychainPrompt,
+    config: options?.config,
+    eligibleProfileIds: options?.eligibleExternalAuthProfileIds,
+    eligibleProviderIds: options?.eligibleExternalAuthProviderIds,
   });
 }
 
@@ -297,17 +311,30 @@ export function loadAuthProfileStoreWithoutExternalProfiles(agentDir?: string): 
 
 export function ensureAuthProfileStore(
   agentDir?: string,
-  options?: { allowKeychainPrompt?: boolean },
+  options?: {
+    allowKeychainPrompt?: boolean;
+    config?: OpenClawConfig;
+    eligibleExternalAuthProfileIds?: Iterable<string>;
+    eligibleExternalAuthProviderIds?: Iterable<string>;
+  },
 ): AuthProfileStore {
   return overlayExternalAuthProfiles(
     ensureAuthProfileStoreWithoutExternalProfiles(agentDir, options),
-    { agentDir },
+    {
+      agentDir,
+      allowKeychainPrompt: options?.allowKeychainPrompt,
+      config: options?.config,
+      eligibleProfileIds: options?.eligibleExternalAuthProfileIds,
+      eligibleProviderIds: options?.eligibleExternalAuthProviderIds,
+    },
   );
 }
 
 export function ensureAuthProfileStoreWithoutExternalProfiles(
   agentDir?: string,
-  options?: { allowKeychainPrompt?: boolean },
+  options?: {
+    allowKeychainPrompt?: boolean;
+  },
 ): AuthProfileStore {
   const runtimeStore = resolveRuntimeAuthProfileStore(agentDir);
   if (runtimeStore) {

@@ -281,6 +281,172 @@ function resolveConfiguredProviders(cfg: OpenClawConfig): {
   return { providers: Array.from(out), expectsOAuth };
 }
 
+const AGENT_MODEL_CONFIG_KEYS = [
+  "model",
+  "imageModel",
+  "imageGenerationModel",
+  "videoGenerationModel",
+  "musicGenerationModel",
+  "pdfModel",
+] as const;
+
+function collectModelRefsFromConfig(cfg: OpenClawConfig): string[] {
+  const refs: string[] = [];
+  const pushModelRef = (value: unknown) => {
+    if (typeof value === "string" && value.trim()) {
+      refs.push(value.trim());
+    }
+  };
+  const collectModelConfig = (value: unknown) => {
+    if (typeof value === "string") {
+      pushModelRef(value);
+      return;
+    }
+    if (!value || typeof value !== "object") {
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    pushModelRef(record.primary);
+    if (Array.isArray(record.fallbacks)) {
+      for (const fallback of record.fallbacks) {
+        pushModelRef(fallback);
+      }
+    }
+  };
+  const collectFromAgent = (agent: unknown) => {
+    if (!agent || typeof agent !== "object") {
+      return;
+    }
+    const record = agent as Record<string, unknown>;
+    for (const key of AGENT_MODEL_CONFIG_KEYS) {
+      collectModelConfig(record[key]);
+    }
+    const subagents = record.subagents;
+    if (subagents && typeof subagents === "object") {
+      collectModelConfig((subagents as Record<string, unknown>).model);
+    }
+    const heartbeat = record.heartbeat;
+    if (heartbeat && typeof heartbeat === "object") {
+      collectModelConfig((heartbeat as Record<string, unknown>).model);
+    }
+    const compaction = record.compaction;
+    if (compaction && typeof compaction === "object") {
+      const compactionRecord = compaction as Record<string, unknown>;
+      collectModelConfig(compactionRecord.model);
+      const memoryFlush = compactionRecord.memoryFlush;
+      if (memoryFlush && typeof memoryFlush === "object") {
+        collectModelConfig((memoryFlush as Record<string, unknown>).model);
+      }
+    }
+    if (record.models && typeof record.models === "object") {
+      for (const key of Object.keys(record.models)) {
+        pushModelRef(key);
+      }
+    }
+  };
+
+  collectFromAgent(cfg.agents?.defaults);
+  for (const agent of cfg.agents?.list ?? []) {
+    collectFromAgent(agent);
+  }
+  for (const channelMap of Object.values(cfg.channels?.modelByChannel ?? {})) {
+    if (!channelMap || typeof channelMap !== "object") {
+      continue;
+    }
+    for (const modelRef of Object.values(channelMap)) {
+      pushModelRef(modelRef);
+    }
+  }
+  return refs;
+}
+
+function collectRuntimeIdsFromConfig(cfg: OpenClawConfig, env: NodeJS.ProcessEnv): string[] {
+  const ids: string[] = [];
+  const pushRuntimeId = (value: unknown) => {
+    if (typeof value === "string" && value.trim()) {
+      ids.push(value.trim());
+    }
+  };
+  const collectPolicy = (value: unknown) => {
+    if (!value || typeof value !== "object") {
+      return;
+    }
+    pushRuntimeId((value as Record<string, unknown>).id);
+  };
+  const collectLegacyHarness = (value: unknown) => {
+    if (!value || typeof value !== "object") {
+      return;
+    }
+    pushRuntimeId((value as Record<string, unknown>).runtime);
+  };
+
+  pushRuntimeId(env.OPENCLAW_AGENT_RUNTIME);
+  collectPolicy(cfg.agents?.defaults?.agentRuntime);
+  collectLegacyHarness(cfg.agents?.defaults?.embeddedHarness);
+  for (const agent of cfg.agents?.list ?? []) {
+    collectPolicy(agent.agentRuntime);
+    collectLegacyHarness(agent.embeddedHarness);
+  }
+  return ids;
+}
+
+function resolveExternalAuthScope(
+  cfg: OpenClawConfig,
+  configured: ReturnType<typeof resolveConfiguredProviders>,
+  env: NodeJS.ProcessEnv = process.env,
+): { providerIds: string[]; profileIds: string[] } {
+  const providerIds = new Set(
+    configured.providers.map((provider) => normalizeProviderId(provider)),
+  );
+  const profileIds = new Set<string>();
+  const addProviderId = (provider: string | undefined) => {
+    const normalized = normalizeProviderId(provider ?? "");
+    if (!normalized) {
+      return;
+    }
+    providerIds.add(normalized);
+    if (normalized === "codex" || normalized === "codex-cli") {
+      providerIds.add("openai-codex");
+    }
+  };
+
+  for (const provider of Object.keys(cfg.models?.providers ?? {})) {
+    addProviderId(provider);
+  }
+  for (const [profileId, profile] of Object.entries(cfg.auth?.profiles ?? {})) {
+    if (profileId.trim()) {
+      profileIds.add(profileId.trim());
+    }
+    addProviderId(profile?.provider);
+  }
+  for (const [provider, orderedProfileIds] of Object.entries(cfg.auth?.order ?? {})) {
+    addProviderId(provider);
+    if (!Array.isArray(orderedProfileIds)) {
+      continue;
+    }
+    for (const profileId of orderedProfileIds) {
+      const trimmed = profileId.trim();
+      if (trimmed) {
+        profileIds.add(trimmed);
+      }
+    }
+  }
+  for (const modelRef of collectModelRefsFromConfig(cfg)) {
+    const slash = modelRef.indexOf("/");
+    if (slash > 0) {
+      addProviderId(modelRef.slice(0, slash));
+    }
+  }
+  for (const runtimeId of collectRuntimeIdsFromConfig(cfg, env)) {
+    addProviderId(runtimeId);
+  }
+
+  return {
+    providerIds: Array.from(providerIds).filter(Boolean),
+    profileIds: Array.from(profileIds),
+  };
+}
+
 export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
   "models.authStatus": async ({ params, respond, context }) => {
     const now = Date.now();
@@ -292,8 +458,14 @@ export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
     try {
       const cfg = context.getRuntimeConfig();
       const agentDir = resolveOpenClawAgentDir();
-      const store = ensureAuthProfileStore(agentDir);
       const configured = resolveConfiguredProviders(cfg);
+      const externalAuthScope = resolveExternalAuthScope(cfg, configured);
+      const store = ensureAuthProfileStore(agentDir, {
+        allowKeychainPrompt: false,
+        config: cfg,
+        eligibleExternalAuthProfileIds: externalAuthScope.profileIds,
+        eligibleExternalAuthProviderIds: externalAuthScope.providerIds,
+      });
       const authHealth: AuthHealthSummary = buildAuthHealthSummary({
         store,
         cfg,

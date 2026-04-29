@@ -5,7 +5,9 @@ import type { GatewayRequestHandlerOptions } from "./types.js";
 const mocks = vi.hoisted(() => ({
   getRuntimeConfig: vi.fn(() => ({})),
   resolveOpenClawAgentDir: vi.fn(() => "/tmp/agent"),
-  ensureAuthProfileStore: vi.fn(() => ({ profiles: {} })),
+  ensureAuthProfileStore: vi.fn<
+    (_agentDir?: string, _options?: unknown) => { profiles: Record<string, never> }
+  >(() => ({ profiles: {} })),
   buildAuthHealthSummary: vi.fn(
     (): AuthHealthSummary => ({ now: 0, warnAfterMs: 0, profiles: [], providers: [] }),
   ),
@@ -348,6 +350,175 @@ describe("models.authStatus", () => {
       | [{ providers?: string[] }]
       | undefined;
     expect(call?.[0]?.providers).toBeUndefined();
+  });
+
+  it("scopes external auth overlays to configured model providers and runtimes", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          model: "anthropic/claude-opus-4-7",
+          agentRuntime: { id: "claude-cli" },
+        },
+      },
+      auth: {
+        profiles: {
+          "anthropic:claude-cli": { provider: "claude-cli", mode: "oauth" },
+        },
+      },
+      models: {
+        providers: {
+          anthropic: { auth: "oauth" },
+        },
+      },
+    };
+    mocks.getRuntimeConfig.mockReturnValue(cfg);
+
+    await handler(createOptions());
+
+    expect(mocks.ensureAuthProfileStore).toHaveBeenCalledWith(
+      "/tmp/agent",
+      expect.objectContaining({
+        allowKeychainPrompt: false,
+        config: cfg,
+        eligibleExternalAuthProfileIds: ["anthropic:claude-cli"],
+        eligibleExternalAuthProviderIds: expect.arrayContaining(["anthropic", "claude-cli"]),
+      }),
+    );
+  });
+
+  it("keeps Codex CLI runtime eligible for OpenAI Codex external auth", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          model: "openai/gpt-5.5",
+          agentRuntime: { id: "codex-cli" },
+        },
+      },
+    };
+    mocks.getRuntimeConfig.mockReturnValue(cfg);
+
+    await handler(createOptions());
+
+    const call = mocks.ensureAuthProfileStore.mock.calls[0];
+    expect(call?.[1]).toEqual(
+      expect.objectContaining({
+        eligibleExternalAuthProviderIds: expect.arrayContaining(["codex-cli", "openai-codex"]),
+      }),
+    );
+  });
+
+  it("includes media and nested model surfaces in external auth scope", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          model: "opencode-go/qwen3-coder",
+          imageModel: "openai-codex/gpt-5.5",
+          pdfModel: { primary: "openai-codex/gpt-5.4", fallbacks: ["anthropic/claude-sonnet"] },
+          heartbeat: { model: "minimax-portal/minimax-text-01" },
+          compaction: {
+            model: "openrouter/google/gemini-3-pro",
+            memoryFlush: { model: "openai-codex/gpt-5.5-mini" },
+          },
+          subagents: { model: "claude-cli/claude-sonnet-4-6" },
+        },
+      },
+    };
+    mocks.getRuntimeConfig.mockReturnValue(cfg);
+
+    await handler(createOptions());
+
+    const call = mocks.ensureAuthProfileStore.mock.calls[0];
+    expect(call?.[1]).toEqual(
+      expect.objectContaining({
+        eligibleExternalAuthProviderIds: expect.arrayContaining([
+          "opencode-go",
+          "openai-codex",
+          "anthropic",
+          "minimax-portal",
+          "openrouter",
+          "claude-cli",
+        ]),
+      }),
+    );
+  });
+
+  it("includes channel model overrides in external auth scope", async () => {
+    const cfg = {
+      channels: {
+        modelByChannel: {
+          discord: {
+            "123": "claude-cli/claude-sonnet-4-6",
+          },
+          telegram: {
+            "456": "openai-codex/gpt-5.5",
+          },
+        },
+      },
+    };
+    mocks.getRuntimeConfig.mockReturnValue(cfg);
+
+    await handler(createOptions());
+
+    const call = mocks.ensureAuthProfileStore.mock.calls[0];
+    expect(call?.[1]).toEqual(
+      expect.objectContaining({
+        eligibleExternalAuthProviderIds: expect.arrayContaining(["claude-cli", "openai-codex"]),
+      }),
+    );
+  });
+
+  it("includes configured auth order in external auth scope", async () => {
+    const cfg = {
+      auth: {
+        order: {
+          "claude-cli": ["anthropic:claude-cli"],
+          "openai-codex": ["openai-codex:default"],
+        },
+      },
+    };
+    mocks.getRuntimeConfig.mockReturnValue(cfg);
+
+    await handler(createOptions());
+
+    const call = mocks.ensureAuthProfileStore.mock.calls[0];
+    expect(call?.[1]).toEqual(
+      expect.objectContaining({
+        eligibleExternalAuthProfileIds: expect.arrayContaining([
+          "anthropic:claude-cli",
+          "openai-codex:default",
+        ]),
+        eligibleExternalAuthProviderIds: expect.arrayContaining(["claude-cli", "openai-codex"]),
+      }),
+    );
+  });
+
+  it("does not make unrelated external CLI providers eligible for single-provider configs", async () => {
+    const cfg = {
+      plugins: { allow: ["opencode-go"] },
+      agents: {
+        defaults: {
+          model: "opencode-go/qwen3-coder",
+        },
+      },
+      models: {
+        providers: {
+          "opencode-go": { api: "openai-compatible" },
+        },
+      },
+    };
+    mocks.getRuntimeConfig.mockReturnValue(cfg);
+
+    await handler(createOptions());
+
+    const call = mocks.ensureAuthProfileStore.mock.calls[0];
+    expect(call?.[1]).toEqual(
+      expect.objectContaining({
+        allowKeychainPrompt: false,
+        config: cfg,
+        eligibleExternalAuthProfileIds: [],
+        eligibleExternalAuthProviderIds: ["opencode-go"],
+      }),
+    );
   });
 
   it("normalizes expectsOAuth provider ids to match buildAuthHealthSummary", async () => {

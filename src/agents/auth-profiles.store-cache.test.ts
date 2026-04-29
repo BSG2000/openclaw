@@ -12,7 +12,9 @@ import type { OAuthCredential } from "./auth-profiles/types.js";
 type RuntimeOnlyOverlay = { profileId: string; credential: OAuthCredential };
 
 const mocks = vi.hoisted(() => ({
-  resolveExternalCliAuthProfiles: vi.fn<() => RuntimeOnlyOverlay[]>(() => []),
+  resolveExternalCliAuthProfiles: vi.fn<
+    (_store?: unknown, _scope?: unknown) => RuntimeOnlyOverlay[]
+  >(() => []),
 }));
 
 vi.mock("./auth-profiles/external-cli-sync.js", () => ({
