@@ -137,8 +137,8 @@ function isOpenAIFamilyFoundryDeployment(
   return (
     normalized.startsWith("gpt-") ||
     normalized.startsWith("chatgpt-") ||
-    /^codex(?:[-\s(]|1000 4 24 27 30 46 100 1000 1001/.test(normalized) ||
-    /^o\d+(?:[-.\s(]|1000 4 24 27 30 46 100 1000 1001/.test(normalized)
+    /^codex(?:[-\s(]|$)/.test(normalized) ||
+    /^o\d+(?:[-.\s(]|$)/.test(normalized)
   );
 }
 
@@ -151,7 +151,7 @@ function normalizeBaseUrlHostname(baseUrl: string | undefined): string | undefin
     return new URL(trimmed).hostname.toLowerCase();
   } catch {
     try {
-      return new URL(`https://`).hostname.toLowerCase();
+      return new URL(`https://${trimmed}`).hostname.toLowerCase();
     } catch {
       return undefined;
     }
