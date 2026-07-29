@@ -21,6 +21,7 @@ import { resolveAgentModelFallbackValues } from "../../config/model-input.js";
 import { updateSessionEntry } from "../../config/sessions/session-accessor.js";
 import { logVerbose } from "../../globals.js";
 import { isAcpSessionKey } from "../../routing/session-key.js";
+import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import { isInternalMessageChannel } from "../../utils/message-channel.js";
 import { isResetAuthorizedForContext } from "../command-auth.js";
 import { applyCommandTextToContext } from "./command-context-rewrite.js";
@@ -42,6 +43,10 @@ import {
 type InternalResetCommandOptions = NonNullable<HandleCommandsParams["opts"]> & {
   onSessionPrepared?: (binding: ReplySessionBinding) => void;
 };
+
+const modelCatalogRuntimeLoader = createLazyImportLoader(
+  () => import("../../agents/model-catalog.runtime.js"),
+);
 
 function applyAcpResetTailContext(ctx: HandleCommandsParams["ctx"], resetTail: string): void {
   applyCommandTextToContext(ctx, resetTail);
@@ -120,6 +125,19 @@ async function isModelRefTail(params: HandleCommandsParams, tail: string): Promi
   // the /new hot path, so it uses the already published snapshot (or none while
   // cold) instead of cold-loading plugins the way the resolver does downstream.
   const warmCatalog = getPreparedModelCatalogSnapshot(catalogParams);
+  // While the catalog is cold, manifest-declared plugin models are already available
+  // as prepared static facts: the plugin metadata snapshot is published at gateway
+  // startup, before the first catalog publish. Classifying against those facts keeps
+  // bare plugin model ids (e.g. `/new widget summarize this`) directives cold and
+  // warm alike without cold-loading plugins on the /new hot path. Runtime-augmented
+  // models are not manifest-declared, so provider/model-shaped tails that static
+  // facts cannot resolve still escalate to the on-demand load below.
+  const classificationCatalog = warmCatalog
+    ? warmCatalog.entries
+    : (await modelCatalogRuntimeLoader.load()).loadManifestModelCatalog({
+        config: params.cfg,
+        fallbackToMetadataScan: false,
+      });
   const { defaultProvider, defaultModel, aliasIndex } = resolveDefaultModel({
     cfg: params.cfg,
     ...(activeAgentId ? { agentId: activeAgentId } : {}),
@@ -129,7 +147,7 @@ async function isModelRefTail(params: HandleCommandsParams, tail: string): Promi
     resolveAgentModelFallbackValues(params.cfg.agents?.defaults?.model);
   const allowed = buildAllowedModelSetWithFallbacks({
     cfg: params.cfg,
-    catalog: warmCatalog?.entries ?? [],
+    catalog: classificationCatalog,
     defaultProvider,
     defaultModel,
     fallbackModels,
