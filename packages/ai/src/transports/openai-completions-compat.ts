@@ -125,7 +125,7 @@ export function usesNativeOpenAICodexResponsesBackend(model: {
   return isOpenAICodexResponsesModel(model) && isNativeOpenAICodexResponsesBaseUrl(model.baseUrl);
 }
 
-function isOpenAIFamilyFoundryDeployment(
+export function isOpenAIFamilyFoundryDeployment(
   modelId: string | undefined,
   modelName: string | undefined,
 ): boolean {
