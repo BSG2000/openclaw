@@ -2021,9 +2021,11 @@ export function buildOpenAICompletionsParams(
     payload: params,
     requestedEffort: completionsReasoningEffort,
   });
-  if (disableChatCompletionsToolReasoning) {
+  const isCustomProvider = model.name.includes("(Custom Provider)");
+  if (disableChatCompletionsToolReasoning && !isCustomProvider) {
     // GPT-5.6 Chat Completions defaults reasoning on, but rejects function
     // tools unless reasoning is explicitly disabled.
+    // Skip this for custom non-OpenAI providers that don't support reasoning_effort.
     params.reasoning_effort = "none";
   } else if (
     compat.thinkingFormat === "openrouter" &&
@@ -2038,7 +2040,8 @@ export function buildOpenAICompletionsParams(
     model.reasoning &&
     compat.supportsReasoningEffort &&
     !handledQwenThinkingFormat &&
-    !omitChatCompletionsToolReasoningEffort
+    !omitChatCompletionsToolReasoningEffort &&
+    !isCustomProvider
   ) {
     params.reasoning_effort = resolvedCompletionsReasoningEffort;
   }
