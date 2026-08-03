@@ -187,6 +187,9 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
       nextOwner,
     );
   }
+  // NOTE: createSession() now lives in ./chat-pane-session-creation.ts
+  // (main split it out of this file); this stray block was the pre-split
+  // copy that git 3-way merge re-surfaced during rebase.
 
   protected syncActiveBindings() {
     this.nativeDraftCleanup?.();
