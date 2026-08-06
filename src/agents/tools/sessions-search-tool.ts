@@ -43,6 +43,7 @@ import {
 
 const SESSIONS_SEARCH_DEFAULT_LIMIT = 10;
 const SESSIONS_SEARCH_MAX_LIMIT = 25;
+const SESSIONS_SEARCH_LIMIT_ERROR_MESSAGE = `limit must be a positive integer <= ${SESSIONS_SEARCH_MAX_LIMIT}`;
 const SESSIONS_SEARCH_MAX_SESSION_KEYS = 200;
 // Bounds FTS token expansion on the synchronous gateway path while leaving ample query context.
 const SESSIONS_SEARCH_MAX_QUERY_CHARS = 4096;
@@ -54,7 +55,9 @@ const SESSIONS_SEARCH_INDEXING_WARNING =
 const SessionsSearchToolSchema = Type.Object({
   query: Type.String({ maxLength: SESSIONS_SEARCH_MAX_QUERY_CHARS }),
   sessionKey: Type.Optional(Type.String()),
-  limit: optionalPositiveIntegerSchema({ maximum: SESSIONS_SEARCH_MAX_LIMIT }),
+  limit: optionalPositiveIntegerSchema({
+    description: `Positive integer; maximum ${SESSIONS_SEARCH_MAX_LIMIT}.`,
+  }),
 });
 
 const SessionsSearchHitSchema = Type.Object(
@@ -368,6 +371,7 @@ export function createSessionsSearchTool(opts?: {
       const limit =
         readPositiveIntegerParam(params, "limit", {
           max: SESSIONS_SEARCH_MAX_LIMIT,
+          message: SESSIONS_SEARCH_LIMIT_ERROR_MESSAGE,
         }) ?? SESSIONS_SEARCH_DEFAULT_LIMIT;
       const requestedSessionKey = readToolStringParam(params, "sessionKey");
       const {
