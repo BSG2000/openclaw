@@ -43,7 +43,9 @@ const SESSIONS_SEARCH_SNIPPET_MAX_CHARS = 300;
 const SessionsSearchToolSchema = Type.Object({
   query: Type.String({ maxLength: SESSIONS_SEARCH_MAX_QUERY_CHARS }),
   sessionKey: Type.Optional(Type.String()),
-  limit: optionalPositiveIntegerSchema({ maximum: SESSIONS_SEARCH_MAX_LIMIT }),
+  limit: optionalPositiveIntegerSchema({
+    description: `Positive integer; maximum ${SESSIONS_SEARCH_MAX_LIMIT}.`,
+  }),
 });
 
 const SessionsSearchHitSchema = Type.Object(

@@ -501,7 +501,6 @@ export function buildEmptyInteractiveReplyPayload(params: {
   hasPendingContinuation: boolean;
   hasExplicitSilentReply: boolean;
   hasCommittedDelivery: boolean;
-  toolFailureCount?: number;
   sessionCtx: ExternalFailureConversationContext;
   cfg?: OpenClawConfig;
 }): ReplyPayload | undefined {
@@ -517,13 +516,9 @@ export function buildEmptyInteractiveReplyPayload(params: {
   ) {
     return undefined;
   }
-  const fallbackText =
-    (params.toolFailureCount ?? 0) > 0
-      ? "A tool call failed and the turn ended without a visible final reply. Please retry the request."
-      : "I finished the turn, but it did not produce a visible reply. Please try again, or start a new session if this keeps happening.";
   return markAgentRunFailureReplyPayload({
     text: resolveExternalRunFailureTextForConversation({
-      text: fallbackText,
+      text: "I finished the turn, but it did not produce a visible reply. Please try again, or start a new session if this keeps happening.",
       sessionCtx: params.sessionCtx,
       isGenericRunnerFailure: true,
       cfg: params.cfg,
