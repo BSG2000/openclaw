@@ -33,6 +33,11 @@ import {
 import { applyDirectCompletionsReasoningAndRouting } from "./openai-completions-direct-policy.js";
 import { isAzureOpenAICompatibleHost } from "./openai-completions-host.js";
 import {
+  isAzureFoundryMultiModelHostname,
+  isDedicatedAzureOpenAIHostname,
+} from "./azure-openai-hostnames-internal.js";
+import { isOpenAIFamilyFoundryDeployment } from "./openai-completions-compat.js";
+import {
   applyCompletionsReplay,
   COMPLETIONS_REASONING_REPLAY_FIELDS,
 } from "./openai-completions-replay.js";
@@ -57,7 +62,9 @@ import {
   supportsModelTools,
 } from "./transport-utils.js";
 
-function isKnownOpenAICompletionsEndpoint(model: Pick<Model, "baseUrl">): boolean {
+function isKnownOpenAICompletionsEndpoint(
+  model: Pick<Model, "baseUrl" | "id" | "name">,
+): boolean {
   if (!model.baseUrl.trim()) {
     return true;
   }
@@ -66,7 +73,14 @@ function isKnownOpenAICompletionsEndpoint(model: Pick<Model, "baseUrl">): boolea
     return true;
   }
   try {
-    return isAzureOpenAICompatibleHost(new URL(model.baseUrl).hostname.toLowerCase());
+    const hostname = new URL(model.baseUrl).hostname.toLowerCase();
+    if (isDedicatedAzureOpenAIHostname(hostname)) {
+      return true;
+    }
+    if (isAzureFoundryMultiModelHostname(hostname)) {
+      return isOpenAIFamilyFoundryDeployment(model.id, model.name);
+    }
+    return false;
   } catch {
     return false;
   }
