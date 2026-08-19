@@ -55,9 +55,7 @@ const SESSIONS_SEARCH_INDEXING_WARNING =
 const SessionsSearchToolSchema = Type.Object({
   query: Type.String({ maxLength: SESSIONS_SEARCH_MAX_QUERY_CHARS }),
   sessionKey: Type.Optional(Type.String()),
-  limit: optionalPositiveIntegerSchema({
-    description: `Positive integer; maximum ${SESSIONS_SEARCH_MAX_LIMIT}.`,
-  }),
+  limit: optionalPositiveIntegerSchema({ maximum: SESSIONS_SEARCH_MAX_LIMIT }),
 });
 
 const SessionsSearchHitSchema = Type.Object(
