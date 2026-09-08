@@ -164,7 +164,7 @@ describe("delete session command", () => {
     // The reply must say so instead of claiming an error, and the local store entry
     // must survive untouched because the outcome is unconfirmed.
     const storePath = await createStorePath();
-    await upsertSessionEntry(
+    await replaceSessionEntry(
       { storePath, sessionKey },
       { sessionId: "delete-me", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
     );
@@ -358,7 +358,7 @@ describe("delete session command", () => {
 
   it("rejects unauthorized senders before leaking argument usage feedback", async () => {
     const storePath = await createStorePath();
-    await upsertSessionEntry(
+    await replaceSessionEntry(
       { storePath, sessionKey },
       { sessionId: "delete-me", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
     );

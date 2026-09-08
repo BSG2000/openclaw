@@ -91,6 +91,7 @@ function composeSessionWorkAdmissionLeases(
   const leases = entries.map((entry) => entry.lease);
   return {
     createHandoff: () => createSessionWorkAdmissionHandoffForEntries(entries),
+    isActive: () => leases.every((lease) => lease.isActive()),
     release: () => {
       for (const lease of leases) {
         lease.release();
