@@ -8,8 +8,9 @@ import { clearBootstrapSnapshot } from "../../agents/bootstrap-cache.js";
 import { clearAllCliSessions } from "../../agents/cli-session.js";
 import { normalizeStaticProviderModelId } from "../../agents/model-ref-shared.js";
 import {
-  buildAllowedModelSetWithFallbacks,
+  createModelVisibilityPolicyWithFallbacks,
   isModelKeyAllowedBySet,
+  resolveModelRefFromString,
 } from "../../agents/model-selection-shared.js";
 import {
   getPreparedModelCatalogSnapshot,
@@ -34,11 +35,7 @@ import { parseSoftResetCommand } from "./commands-reset-mode.js";
 import type { CommandHandlerResult, HandleCommandsParams } from "./commands-types.js";
 import { resolveDefaultModel } from "./directive-handling.defaults.js";
 import type { ReplySessionBinding } from "./get-reply.types.js";
-import {
-  modelKey,
-  resolveModelDirectiveSelection,
-  resolveModelRefFromDirectiveString,
-} from "./model-selection-directive.js";
+import { modelKey, resolveModelDirectiveSelection } from "./model-selection-directive.js";
 
 type InternalResetCommandOptions = NonNullable<HandleCommandsParams["opts"]> & {
   onSessionPrepared?: (binding: ReplySessionBinding) => void;
@@ -161,14 +158,13 @@ async function isModelRefTail(params: HandleCommandsParams, tail: string): Promi
   const fallbackModels =
     (activeAgentId ? resolveAgentModelFallbacksOverride(params.cfg, activeAgentId) : undefined) ??
     resolveAgentModelFallbackValues(params.cfg.agents?.defaults?.model);
-  const allowed = buildAllowedModelSetWithFallbacks({
+  const allowed = createModelVisibilityPolicyWithFallbacks({
     cfg: params.cfg,
     catalog: classificationCatalog,
     defaultProvider,
     defaultModel,
     fallbackModels,
     ...(activeAgentId ? { agentId: activeAgentId } : {}),
-    aliasIndex,
     allowPluginNormalization: false,
   });
   const allowedModelKeys = allowed.allowedKeys;
@@ -196,12 +192,17 @@ async function isModelRefTail(params: HandleCommandsParams, tail: string): Promi
       });
     // Attempt 1: `provider model …` split across the first two tokens.
     if (providers.has(normalizeProviderId(first)) && second) {
-      if (resolveSelection(`${normalizeProviderId(first)}/${second}`).selection) {
+      const combined = resolveSelection(`${normalizeProviderId(first)}/${second}`).selection;
+      if (
+        combined &&
+        (combined.alias ||
+          isModelKeyAllowedBySet(allowedModelKeys, modelKey(combined.provider, combined.model)))
+      ) {
         return true;
       }
     }
     // Attempt 2: explicit ref or alias, allowlist-checked like the resolver.
-    const explicit = resolveModelRefFromDirectiveString({
+    const explicit = resolveModelRefFromString({
       raw: first,
       defaultProvider,
       aliasIndex,
@@ -223,10 +224,21 @@ async function isModelRefTail(params: HandleCommandsParams, tail: string): Promi
         return true;
       }
     }
-    // Attempt 3: fuzzy match, gated exactly like the resolver.
+    // Attempt 3: fuzzy match, gated exactly like the resolver. Under an unrestricted
+    // model policy, resolveModelDirectiveSelection permits any bare word as an
+    // off-catalog model so /model can select arbitrary provider-served ids; that
+    // fallback is not evidence of model intent here, so classification only trusts
+    // a fuzzy hit that is an alias or actually present in the allowlisted catalog.
     const allowFuzzy = providers.has(normalizeProviderId(first)) || first.trim().length >= 6;
-    if (allowFuzzy && resolveSelection(first).selection) {
-      return true;
+    if (allowFuzzy) {
+      const fuzzy = resolveSelection(first).selection;
+      if (
+        fuzzy &&
+        (fuzzy.alias ||
+          isModelKeyAllowedBySet(allowedModelKeys, modelKey(fuzzy.provider, fuzzy.model)))
+      ) {
+        return true;
+      }
     }
   }
   // Cold-catalog escalation: a leading token that the config-derived allowlist could not

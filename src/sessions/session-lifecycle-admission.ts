@@ -648,6 +648,9 @@ export async function beginSessionWorkAdmission(params: {
       );
     },
   };
+  // Back-reference so createSessionWorkAdmissionHandoffForCurrent can hand off
+  // this admission's own lease when it is retained across a nested RPC.
+  admission.lease = lease;
   let removeAbortListener = () => {};
   try {
     const closedOwner = [...SESSION_WORK_ADMISSION_CLOSURES].find((owner) =>

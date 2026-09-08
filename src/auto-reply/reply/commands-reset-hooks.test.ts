@@ -8,9 +8,12 @@ import * as bootstrapCache from "../../agents/bootstrap-cache.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { loadSessionEntry, replaceSessionEntry } from "../../config/sessions/session-accessor.js";
 import { clearSessionStoreCacheForTest } from "../../config/sessions/store-writer-state.js";
-import { setCurrentPluginMetadataSnapshot } from "../../plugins/current-plugin-metadata-snapshot.js";
+import { setGatewayPluginMetadataSnapshot } from "../../plugins/current-plugin-metadata-snapshot.js";
 import { clearCurrentPluginMetadataSnapshot } from "../../plugins/current-plugin-metadata-state.js";
 import { resolveInstalledPluginIndexPolicyHash } from "../../plugins/installed-plugin-index-policy.js";
+import type { PluginManifestRecord } from "../../plugins/manifest-registry.types.js";
+import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snapshot.types.js";
+import { createPluginMetadataSnapshotFixture } from "../../plugins/plugin-metadata.test-support.js";
 import type { MsgContext } from "../templating.js";
 import { buildCommandContext } from "./commands-context.js";
 import { maybeHandleResetCommand } from "./commands-reset.js";
@@ -97,6 +100,15 @@ vi.mock("./commands-handlers.runtime.js", () => ({
 vi.mock("./route-reply.runtime.js", () => ({
   routeReply: (params: unknown) => routeReplyMock(params),
 }));
+
+/** Builds a full plugin metadata snapshot from bare manifest fields for these tests. */
+function buildPluginSnapshot(
+  policyHash: string,
+  plugins: ReadonlyArray<Partial<PluginManifestRecord> & Pick<PluginManifestRecord, "id">>,
+): PluginMetadataSnapshot {
+  const fixture = createPluginMetadataSnapshotFixture({ plugins: [...plugins] });
+  return { ...fixture, policyHash, index: { ...fixture.index, policyHash } };
+}
 
 function buildResetParams(
   commandBody: string,
@@ -888,7 +900,7 @@ describe("handleCommands reset hooks", () => {
     "replies with a missing-name error for %s without resetting or labeling",
     async (commandBody) => {
       const storePath = await createStorePath();
-      await upsertSessionEntry(
+      await replaceSessionEntry(
         { storePath, sessionKey: "agent:main:main" },
         { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
       );
@@ -926,7 +938,7 @@ describe("handleCommands reset hooks", () => {
     // `--name=` used to fall through the explicit-name parse and get persisted verbatim as
     // the session label.
     const storePath = await createStorePath();
-    await upsertSessionEntry(
+    await replaceSessionEntry(
       { storePath, sessionKey: "agent:main:main" },
       { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
     );
@@ -1561,32 +1573,20 @@ describe("handleCommands reset hooks", () => {
     // the same manifest normalization as the reset-model resolver before comparing;
     // otherwise the aliased directive is frozen into the session name even though the
     // resolver downstream would have honored it as a model switch.
-    setCurrentPluginMetadataSnapshot(
-      {
-        policyHash: "reset-alias-test",
-        index: {
-          version: 1,
-          hostContractVersion: "test",
-          compatRegistryVersion: "test",
-          migrationVersion: 1,
-          policyHash: "reset-alias-test",
-          generatedAtMs: 0,
-          installRecords: {},
-          plugins: [],
-          diagnostics: [],
-        },
-        plugins: [
-          {
-            modelIdNormalization: {
-              providers: {
-                google: {
-                  aliases: { "gemini-3-pro": "gemini-3.1-pro-preview" },
-                },
+    setGatewayPluginMetadataSnapshot(
+      buildPluginSnapshot("reset-alias-test", [
+        {
+          id: "google-model-aliases",
+          origin: "bundled",
+          modelIdNormalization: {
+            providers: {
+              google: {
+                aliases: { "gemini-3-pro": "gemini-3.1-pro-preview" },
               },
             },
           },
-        ],
-      } as never,
+        },
+      ]),
       { config: {} },
     );
     try {
@@ -1596,7 +1596,7 @@ describe("handleCommands reset hooks", () => {
         routeVariants: [],
       });
       const storePath = await createStorePath();
-      await upsertSessionEntry(
+      await replaceSessionEntry(
         { storePath, sessionKey: "agent:main:main" },
         { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
       );
@@ -1646,36 +1646,22 @@ describe("handleCommands reset hooks", () => {
       channels: { discord: { allowFrom: ["*"] } },
     } as OpenClawConfig;
     const policyHash = resolveInstalledPluginIndexPolicyHash(cfg);
-    setCurrentPluginMetadataSnapshot(
-      {
-        policyHash,
-        index: {
-          version: 1,
-          hostContractVersion: "test",
-          compatRegistryVersion: "test",
-          migrationVersion: 1,
-          policyHash,
-          generatedAtMs: 0,
-          installRecords: {},
-          plugins: [],
-          diagnostics: [],
-        },
-        plugins: [
-          {
-            id: "acme-models",
-            origin: "bundled",
-            modelCatalog: {
-              providers: { acme: { models: [{ id: "widget", name: "Widget" }] } },
-            },
+    setGatewayPluginMetadataSnapshot(
+      buildPluginSnapshot(policyHash, [
+        {
+          id: "acme-models",
+          origin: "bundled",
+          modelCatalog: {
+            providers: { acme: { models: [{ id: "widget", name: "Widget" }] } },
           },
-        ],
-      } as never,
+        },
+      ]),
       { config: cfg },
     );
     try {
       preparedCatalogMock.getPreparedModelCatalogSnapshot.mockReturnValue(undefined);
       const storePath = await createStorePath();
-      await upsertSessionEntry(
+      await replaceSessionEntry(
         { storePath, sessionKey: "agent:main:main" },
         { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
       );
@@ -1715,36 +1701,22 @@ describe("handleCommands reset hooks", () => {
       channels: { discord: { allowFrom: ["*"] } },
     } as OpenClawConfig;
     const policyHash = resolveInstalledPluginIndexPolicyHash(cfg);
-    setCurrentPluginMetadataSnapshot(
-      {
-        policyHash,
-        index: {
-          version: 1,
-          hostContractVersion: "test",
-          compatRegistryVersion: "test",
-          migrationVersion: 1,
-          policyHash,
-          generatedAtMs: 0,
-          installRecords: {},
-          plugins: [],
-          diagnostics: [],
-        },
-        plugins: [
-          {
-            id: "acme-models",
-            origin: "bundled",
-            modelCatalog: {
-              providers: { acme: { models: [{ id: "widget", name: "Widget" }] } },
-            },
+    setGatewayPluginMetadataSnapshot(
+      buildPluginSnapshot(policyHash, [
+        {
+          id: "acme-models",
+          origin: "bundled",
+          modelCatalog: {
+            providers: { acme: { models: [{ id: "widget", name: "Widget" }] } },
           },
-        ],
-      } as never,
+        },
+      ]),
       { config: cfg },
     );
     try {
       preparedCatalogMock.getPreparedModelCatalogSnapshot.mockReturnValue(undefined);
       const storePath = await createStorePath();
-      await upsertSessionEntry(
+      await replaceSessionEntry(
         { storePath, sessionKey: "agent:main:main" },
         { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
       );
@@ -1838,37 +1810,43 @@ describe("handleCommands reset hooks", () => {
       { storePath, sessionKey: "agent:main:main" },
       { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
     );
-    const params = buildResetParams(
-      "/new weekly planning notes",
-      {
-        commands: { text: true },
-        channels: { discord: { allowFrom: ["*"] } },
-      } as OpenClawConfig,
-      {
+    const cfg = {
+      commands: { text: true },
+      channels: { discord: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    // Pin an empty plugin snapshot so the bare-token runtime-discovery check reads this
+    // fixture instead of falling through to a real cold discovery of bundled plugins
+    // (e.g. lmstudio/ollama, which do declare refreshable discovery in this repo).
+    const policyHash = resolveInstalledPluginIndexPolicyHash(cfg);
+    setGatewayPluginMetadataSnapshot(buildPluginSnapshot(policyHash, []));
+    try {
+      const params = buildResetParams("/new weekly planning notes", cfg, {
         CommandSource: "native",
         CommandArgs: { values: { title: "weekly planning notes" } },
         Provider: "discord",
         Surface: "discord",
-      },
-    );
-    params.storePath = storePath;
-    params.sessionStore = {
-      "agent:main:main": {
-        sessionId: "fresh-session",
-        updatedAt: 1,
-        totalTokens: 0,
-        totalTokensFresh: true,
-      },
-    };
-    params.sessionEntry = params.sessionStore["agent:main:main"];
+      });
+      params.storePath = storePath;
+      params.sessionStore = {
+        "agent:main:main": {
+          sessionId: "fresh-session",
+          updatedAt: 1,
+          totalTokens: 0,
+          totalTokensFresh: true,
+        },
+      };
+      params.sessionEntry = params.sessionStore["agent:main:main"];
 
-    const result = await maybeHandleResetCommand(params);
+      const result = await maybeHandleResetCommand(params);
 
-    expect(result).toEqual({
-      shouldContinue: false,
-      reply: { text: "✅ New session started as “weekly planning notes”." },
-    });
-    expect(preparedCatalogMock.loadPreparedModelCatalogSnapshot).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        shouldContinue: false,
+        reply: { text: "✅ New session started as “weekly planning notes”." },
+      });
+      expect(preparedCatalogMock.loadPreparedModelCatalogSnapshot).not.toHaveBeenCalled();
+    } finally {
+      clearCurrentPluginMetadataSnapshot();
+    }
   });
 
   it("escalates a bare cold tail to an on-demand load when a plugin declares runtime discovery", async () => {
@@ -1881,30 +1859,16 @@ describe("handleCommands reset hooks", () => {
       channels: { discord: { allowFrom: ["*"] } },
     } as OpenClawConfig;
     const policyHash = resolveInstalledPluginIndexPolicyHash(cfg);
-    setCurrentPluginMetadataSnapshot(
-      {
-        policyHash,
-        index: {
-          version: 1,
-          hostContractVersion: "test",
-          compatRegistryVersion: "test",
-          migrationVersion: 1,
-          policyHash,
-          generatedAtMs: 0,
-          installRecords: {},
-          plugins: [],
-          diagnostics: [],
-        },
-        plugins: [
-          {
-            id: "lmstudio-plugin",
-            origin: "bundled",
-            modelCatalog: {
-              discovery: { lmstudio: "refreshable" },
-            },
+    setGatewayPluginMetadataSnapshot(
+      buildPluginSnapshot(policyHash, [
+        {
+          id: "lmstudio-plugin",
+          origin: "bundled",
+          modelCatalog: {
+            discovery: { lmstudio: "refreshable" },
           },
-        ],
-      } as never,
+        },
+      ]),
       { config: cfg },
     );
     try {
@@ -1914,7 +1878,7 @@ describe("handleCommands reset hooks", () => {
         routeVariants: [],
       });
       const storePath = await createStorePath();
-      await upsertSessionEntry(
+      await replaceSessionEntry(
         { storePath, sessionKey: "agent:main:main" },
         { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
       );
@@ -1955,30 +1919,16 @@ describe("handleCommands reset hooks", () => {
       channels: { discord: { allowFrom: ["*"] } },
     } as OpenClawConfig;
     const policyHash = resolveInstalledPluginIndexPolicyHash(cfg);
-    setCurrentPluginMetadataSnapshot(
-      {
-        policyHash,
-        index: {
-          version: 1,
-          hostContractVersion: "test",
-          compatRegistryVersion: "test",
-          migrationVersion: 1,
-          policyHash,
-          generatedAtMs: 0,
-          installRecords: {},
-          plugins: [],
-          diagnostics: [],
-        },
-        plugins: [
-          {
-            id: "lmstudio-plugin",
-            origin: "bundled",
-            modelCatalog: {
-              discovery: { lmstudio: "refreshable" },
-            },
+    setGatewayPluginMetadataSnapshot(
+      buildPluginSnapshot(policyHash, [
+        {
+          id: "lmstudio-plugin",
+          origin: "bundled",
+          modelCatalog: {
+            discovery: { lmstudio: "refreshable" },
           },
-        ],
-      } as never,
+        },
+      ]),
       { config: cfg },
     );
     try {
@@ -1988,7 +1938,7 @@ describe("handleCommands reset hooks", () => {
         routeVariants: [],
       });
       const storePath = await createStorePath();
-      await upsertSessionEntry(
+      await replaceSessionEntry(
         { storePath, sessionKey: "agent:main:main" },
         { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
       );
@@ -2033,36 +1983,22 @@ describe("handleCommands reset hooks", () => {
       channels: { discord: { allowFrom: ["*"] } },
     } as OpenClawConfig;
     const policyHash = resolveInstalledPluginIndexPolicyHash(cfg);
-    setCurrentPluginMetadataSnapshot(
-      {
-        policyHash,
-        index: {
-          version: 1,
-          hostContractVersion: "test",
-          compatRegistryVersion: "test",
-          migrationVersion: 1,
-          policyHash,
-          generatedAtMs: 0,
-          installRecords: {},
-          plugins: [],
-          diagnostics: [],
-        },
-        plugins: [
-          {
-            id: "lmstudio-plugin",
-            origin: "bundled",
-            modelCatalog: {
-              discovery: { lmstudio: "refreshable" },
-            },
+    setGatewayPluginMetadataSnapshot(
+      buildPluginSnapshot(policyHash, [
+        {
+          id: "lmstudio-plugin",
+          origin: "bundled",
+          modelCatalog: {
+            discovery: { lmstudio: "refreshable" },
           },
-        ],
-      } as never,
+        },
+      ]),
       { config: cfg },
     );
     try {
       preparedCatalogMock.getPreparedModelCatalogSnapshot.mockReturnValue(undefined);
       const storePath = await createStorePath();
-      await upsertSessionEntry(
+      await replaceSessionEntry(
         { storePath, sessionKey: "agent:main:main" },
         { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
       );
@@ -2103,7 +2039,7 @@ describe("handleCommands reset hooks", () => {
     // The classifier must mirror the reset-model resolver: with only openai/gpt-5.5
     // configured, "Gemini planning" cannot resolve and stays a session name.
     const storePath = await createStorePath();
-    await upsertSessionEntry(
+    await replaceSessionEntry(
       { storePath, sessionKey: "agent:main:main" },
       { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
     );
@@ -2166,7 +2102,7 @@ describe("handleCommands reset hooks", () => {
     // in "foo". The reset-model resolver keeps fallbacks out of its allowed keys, so the
     // classifier must too — the tail stays a session name.
     const storePath = await createStorePath();
-    await upsertSessionEntry(
+    await replaceSessionEntry(
       { storePath, sessionKey: "agent:main:main" },
       { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
     );
@@ -2213,7 +2149,7 @@ describe("handleCommands reset hooks", () => {
     // model ref, so ref classification alone would miss it and freeze the flag text as
     // the session name. The native path must mirror the text path's explicit-flag reject.
     const storePath = await createStorePath();
-    await upsertSessionEntry(
+    await replaceSessionEntry(
       { storePath, sessionKey: "agent:main:main" },
       { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
     );
@@ -2257,12 +2193,12 @@ describe("handleCommands reset hooks", () => {
     // concurrent reset rotates the persisted session while hooks are awaited, naming
     // must fail instead of silently relabeling the replacement session.
     const storePath = await createStorePath();
-    await upsertSessionEntry(
+    await replaceSessionEntry(
       { storePath, sessionKey: "agent:main:main" },
       { sessionId: "fresh-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
     );
     triggerInternalHookMock.mockImplementation(async () => {
-      await upsertSessionEntry(
+      await replaceSessionEntry(
         { storePath, sessionKey: "agent:main:main" },
         { sessionId: "rotated-session", updatedAt: 2, totalTokens: 0, totalTokensFresh: true },
       );
