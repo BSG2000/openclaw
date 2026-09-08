@@ -149,9 +149,13 @@ function isAzureUrl(baseUrl: string): boolean {
  */
 function transformAzureUrl(baseUrl: string, modelId: string): string {
   const normalizedUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
-  // Check if the URL already includes the deployment path
-  if (normalizedUrl.includes("/openai/deployments/")) {
-    return normalizedUrl;
+  try {
+    const url = new URL(normalizedUrl);
+    if (url.pathname.endsWith("/openai/v1") || url.pathname.includes("/openai/deployments/")) {
+      return normalizedUrl;
+    }
+  } catch {
+    // Let URL construction below surface malformed input consistently.
   }
   return `${normalizedUrl}/openai/deployments/${modelId}`;
 }

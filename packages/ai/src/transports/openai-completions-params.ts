@@ -19,6 +19,10 @@ import {
   reconcileOpenAICompletionsToolChoice,
 } from "../providers/openai-tool-projection.js";
 import { normalizeOpenAIStrictToolParameters } from "../providers/openai-tool-schema.js";
+import {
+  isAzureFoundryMultiModelHostname,
+  isDedicatedAzureOpenAIHostname,
+} from "./azure-openai-hostnames-internal.js";
 import { resolveOpenAIStrictToolSetting, resolveProviderEndpoint } from "./host-policy.js";
 import { resolveMaxTokensParam } from "./model-max-tokens-params.js";
 import { emitModelTransportDebug } from "./model-transport-debug.js";
@@ -30,13 +34,8 @@ import {
   detectOpenAICompletionsCompat,
   type ResolvedOpenAICompletionsCompat,
 } from "./openai-completions-compat.js";
-import { applyDirectCompletionsReasoningAndRouting } from "./openai-completions-direct-policy.js";
-import { isAzureOpenAICompatibleHost } from "./openai-completions-host.js";
-import {
-  isAzureFoundryMultiModelHostname,
-  isDedicatedAzureOpenAIHostname,
-} from "./azure-openai-hostnames-internal.js";
 import { isOpenAIFamilyFoundryDeployment } from "./openai-completions-compat.js";
+import { applyDirectCompletionsReasoningAndRouting } from "./openai-completions-direct-policy.js";
 import {
   applyCompletionsReplay,
   COMPLETIONS_REASONING_REPLAY_FIELDS,
@@ -62,9 +61,7 @@ import {
   supportsModelTools,
 } from "./transport-utils.js";
 
-function isKnownOpenAICompletionsEndpoint(
-  model: Pick<Model, "baseUrl" | "id" | "name">,
-): boolean {
+function isKnownOpenAICompletionsEndpoint(model: Pick<Model, "baseUrl" | "id" | "name">): boolean {
   if (!model.baseUrl.trim()) {
     return true;
   }

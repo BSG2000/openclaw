@@ -321,6 +321,18 @@ it("uses Azure Foundry chat-completions probes for services.ai URLs", () => {
     stream: false,
   });
 });
+it("preserves regional Foundry /openai/v1 during chat verification", () => {
+  const request = buildOpenAiVerificationProbeRequest({
+    baseUrl: "https://eastus.api.cognitive.microsoft.com/openai/v1",
+    apiKey: "azure-test-key",
+    modelId: "gpt-4.1",
+  });
+
+  expect(request.endpoint).toBe(
+    "https://eastus.api.cognitive.microsoft.com/openai/v1/chat/completions?api-version=2024-10-21",
+  );
+});
+
 it("uses expanded max_tokens for anthropic verification probes", () => {
   const request = buildAnthropicVerificationProbeRequest({
     baseUrl: "https://example.com",
