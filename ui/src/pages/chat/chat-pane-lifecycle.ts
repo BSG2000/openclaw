@@ -344,7 +344,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
     pageState.chatIsProgrammaticScroll = () => this.transcript.isProgrammaticScroll;
     pageState.chatScrollElement = () => this.transcript.scrollElement;
     pageState.chatScrollToEnd = (options) => this.transcript.scrollToEnd(options);
-    pageState.createChatSession = () => this.createSession();
+    pageState.createChatSession = (options) => this.createSession(options);
     pageState.confirmConversationReset = () => this.confirmConversationReset();
     pageState.exportCurrentChat = () =>
       exportChatMarkdown(pageState.chatMessages, pageState.assistantName);
