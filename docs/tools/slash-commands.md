@@ -231,9 +231,12 @@ plugins, and installed skills.
       Control UI intercepts typed `/new` to create and switch to a fresh
       dashboard session, except when `session.dmScope: "main"` is configured
       and the current parent is the agent's main session — in that case `/new`
-      resets the main session in place. Typed `/reset` still runs the Gateway's
-      in-place reset. Use `/model default` when you want to clear a pinned
-      session model selection.
+      resets the main session in place. Unlike other text-command surfaces,
+      Control UI does not send a free-text tail as the prompt for the new
+      session: it is parsed only as an explicit `--name`/`name:` label (or
+      discarded if it doesn't match), never dispatched as a message. Typed
+      `/reset` still runs the Gateway's in-place reset. Use `/model default`
+      when you want to clear a pinned session model selection.
     </Note>
 
   </Accordion>
@@ -629,7 +632,7 @@ See [BTW side questions](/tools/btw) for the full behavior.
   </Accordion>
   <Accordion title="Argument notes">
     - Commands accept an optional `:` between the command and args (`/think: high`, `/send: on`).
-    - `/new <model>` accepts a model alias, `provider/model`, or a provider name (fuzzy match). If no match, in text commands the tail is treated as the message body, while on native slash-command surfaces it names the new session instead (see the `/new [model]` row above).
+    - `/new <model>` accepts a model alias, `provider/model`, or a provider name (fuzzy match). If no match, in ordinary text commands the tail is treated as the message body; on native slash-command surfaces it names the new session instead; in Control UI it is not sent as a message at all (see the `/new [model]` row above and the Control UI note).
     - `/allowlist add|remove` requires `commands.config: true` and honors channel `configWrites`.
 
   </Accordion>
