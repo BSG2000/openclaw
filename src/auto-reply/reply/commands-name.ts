@@ -11,11 +11,8 @@ import { deriveSessionTitle } from "../../gateway/session-utils.js";
 import { parseSessionLabel } from "../../sessions/session-label.js";
 import { rejectUnauthorizedCommand } from "./command-gates.js";
 import { markCommandSessionMetadataChanged } from "./command-session-metadata.js";
-import type {
-  CommandHandler,
-  CommandHandlerResult,
-  HandleCommandsParams,
-} from "./commands-types.js";
+import type { ResetCommandParams } from "./commands-reset.js";
+import type { CommandHandler, CommandHandlerResult } from "./commands-types.js";
 
 const NAME_COMMAND_PREFIX = "/name";
 
@@ -34,7 +31,7 @@ function nameReply(text: string): CommandHandlerResult {
   return { shouldContinue: false, reply: { text } };
 }
 
-function syncNameSessionEntry(params: HandleCommandsParams): void {
+function syncNameSessionEntry(params: ResetCommandParams): void {
   if (!params.sessionStore || !params.sessionKey || !params.storePath) {
     return;
   }
@@ -57,7 +54,7 @@ export type NameWriteResult = { ok: true; label: string } | { ok: false; error: 
  * as the web/admin path). Shared by `/name` and the named `/new <title>` flow.
  */
 export async function writeSessionLabel(
-  params: HandleCommandsParams,
+  params: ResetCommandParams,
   title: string,
   opts?: { expectedSessionId?: string },
 ): Promise<NameWriteResult> {

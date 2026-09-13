@@ -37,7 +37,7 @@ import { resolveDefaultModel } from "./directive-handling.defaults.js";
 import type { ReplySessionBinding } from "./get-reply.types.js";
 import { modelKey, resolveModelDirectiveSelection } from "./model-selection-directive.js";
 
-type ResetCommandParams = Omit<
+export type ResetCommandParams = Omit<
   HandleCommandsParams,
   "resolvedThinkLevel" | "resolvedReasoningLevel"
 >;
@@ -124,7 +124,7 @@ async function resolveColdPluginModelRef(
   return false;
 }
 
-async function isModelRefTail(params: HandleCommandsParams, tail: string): Promise<boolean> {
+async function isModelRefTail(params: ResetCommandParams, tail: string): Promise<boolean> {
   const tokens = tail.trim().split(/\s+/).filter(Boolean);
   const first = tokens[0];
   if (!first) {
@@ -275,7 +275,7 @@ async function isModelRefTail(params: HandleCommandsParams, tail: string): Promi
   return resolveColdPluginModelRef(catalogParams, firstLower);
 }
 
-function getNativeCommandTitleTail(params: HandleCommandsParams): string | undefined {
+function getNativeCommandTitleTail(params: ResetCommandParams): string | undefined {
   if ((params.ctx.CommandSource ?? "text") === "text") {
     return undefined;
   }
@@ -311,7 +311,7 @@ function parseExplicitNamedNewSessionTail(tail: string): NamedNewSessionTail | u
 }
 
 async function parseNamedNewSessionTail(
-  params: HandleCommandsParams,
+  params: ResetCommandParams,
   resetTail: string,
 ): Promise<NamedNewSessionTail | undefined> {
   const nativeTitle = getNativeCommandTitleTail(params);
@@ -340,7 +340,7 @@ async function parseNamedNewSessionTail(
   return undefined;
 }
 
-function isResetAuthorized(params: HandleCommandsParams): boolean {
+function isResetAuthorized(params: ResetCommandParams): boolean {
   return isResetAuthorizedForContext({
     ctx: params.ctx,
     cfg: params.cfg,
