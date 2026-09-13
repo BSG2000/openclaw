@@ -1,4 +1,4 @@
-import { resolveMainSessionKey } from "../../config/sessions.js";
+import { resolveAgentMainSessionKey } from "../../config/sessions.js";
 import { resolveSessionStoreEntryCore } from "../../config/sessions/store-entry.js";
 import { callGateway, isGatewayTransportError } from "../../gateway/call.js";
 import { normalizeMainKey, parseAgentSessionKey } from "../../routing/session-key.js";
@@ -110,7 +110,8 @@ export const handleDeleteSessionCommand: CommandHandler = async (params, allowTe
     return deleteSessionReply("Session deletion is not available for this session.");
   }
   if (
-    params.sessionKey === resolveMainSessionKey(params.cfg) ||
+    params.sessionKey ===
+      resolveAgentMainSessionKey({ cfg: params.cfg, agentId: params.agentId }) ||
     params.sessionKey === "global" ||
     isAgentMainSessionKey(params, params.sessionKey)
   ) {

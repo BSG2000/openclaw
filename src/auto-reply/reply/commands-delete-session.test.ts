@@ -468,6 +468,61 @@ describe("delete session command", () => {
     );
   });
 
+  it("resolves the main-session guard for the active agent under explicit multi-agent ownership", async () => {
+    // resolveMainSessionKey() requires an unambiguous ambient owner and throws
+    // AgentSelectionRequiredError for explicit multi-agent fleets with no single
+    // owner. The main-session guard must resolve the active agent's own main key
+    // instead of the ambient owner so /close and /delete keep working for any
+    // non-main session in that configuration.
+    const storePath = await createStorePath();
+    await replaceSessionEntry(
+      { storePath, sessionKey: "agent:ops:delete-me" },
+      { sessionId: "delete-me", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
+    );
+    const params = buildDeleteParams("/close", storePath, { sessionKey: "agent:ops:delete-me" });
+    params.cfg = {
+      agents: {
+        ownership: "explicit",
+        list: [
+          { id: "ops", default: false },
+          { id: "docs", default: false },
+        ],
+      },
+    } as unknown as OpenClawConfig;
+    params.agentId = "ops";
+
+    const result = await handleDeleteSessionCommand(params, true);
+
+    expect(result?.reply?.text).not.toContain("main session cannot be deleted");
+    expect(callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({ params: expect.objectContaining({ key: "agent:ops:delete-me" }) }),
+    );
+  });
+
+  it("still blocks deleting the active agent's own main session under explicit ownership", async () => {
+    const storePath = await createStorePath();
+    await replaceSessionEntry(
+      { storePath, sessionKey: "agent:ops:main" },
+      { sessionId: "main-session", updatedAt: 1, totalTokens: 0, totalTokensFresh: true },
+    );
+    const params = buildDeleteParams("/delete", storePath, { sessionKey: "agent:ops:main" });
+    params.cfg = {
+      agents: {
+        ownership: "explicit",
+        list: [
+          { id: "ops", default: false },
+          { id: "docs", default: false },
+        ],
+      },
+    } as unknown as OpenClawConfig;
+    params.agentId = "ops";
+
+    const result = await handleDeleteSessionCommand(params, true);
+
+    expect(result?.reply?.text).toContain("main session cannot be deleted");
+    expect(callGatewayMock).not.toHaveBeenCalled();
+  });
+
   it("does not delete another agent configured main session", async () => {
     const storePath = await createStorePath();
     await replaceSessionEntry(
