@@ -525,7 +525,10 @@ async function ensureSessionRuntimeCleanup(params: {
   await retireMcpRuntime(!ended);
   assertCurrent();
   clearBootstrapSnapshot(params.target.canonicalKey);
-  if (ended && !embeddedAgent.isEmbeddedAgentRunActive(sessionId)) {
+  if (
+    ended &&
+    !embeddedAgent.isEmbeddedAgentRunActive(sessionId, { preserveReplyRun: preserveActiveReplyRun })
+  ) {
     assertCurrent();
     mcpRunEndWatcherState.cancellations.get(sessionId)?.();
     await mcpRetirementWatcher;

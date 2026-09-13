@@ -1023,8 +1023,19 @@ export async function preemptAndDrainEmbeddedHeartbeatRun(
   return (await drainPromise) ? "drained" : "timed-out";
 }
 
-export function isEmbeddedAgentRunActive(sessionId: string): boolean {
-  const active = ACTIVE_EMBEDDED_RUNS.has(sessionId) || isReplyRunActiveForSessionId(sessionId);
+export function isEmbeddedAgentRunActive(
+  sessionId: string,
+  opts?: { preserveReplyRun?: boolean },
+): boolean {
+  // With `preserveReplyRun`, only genuine embedded runs count as active: a
+  // chat-initiated session delete runs inside its own still-active reply run,
+  // so treating that preserved run as active would keep reporting the session
+  // busy even after every non-reply run has drained. Mirrors the same option
+  // on waitForEmbeddedAgentRunEnd above.
+  const active =
+    opts?.preserveReplyRun === true
+      ? ACTIVE_EMBEDDED_RUNS.has(sessionId)
+      : ACTIVE_EMBEDDED_RUNS.has(sessionId) || isReplyRunActiveForSessionId(sessionId);
   if (active) {
     diag.debug(`run active check: sessionId=${sessionId} active=true`);
   }
