@@ -227,6 +227,36 @@ describe("chat.abort authorization", () => {
     expect(context.chatAbortControllers.has("run-other")).toBe(false);
   });
 
+  it("ignores a non-admin exemption for a run it does not own", async () => {
+    // An ownerless run is normally in-scope for any non-admin session-wide
+    // abort. A caller must not be able to shield it from that abort simply by
+    // naming it as exemptRunId when they have no ownership relationship to it.
+    const ownerless = createActiveRun("main");
+    const mine = createActiveRun("main", { owner: { deviceId: "dev-1" } });
+    const context = createChatAbortContext({
+      chatAbortControllers: new Map([
+        ["run-ownerless", ownerless],
+        ["run-mine", mine],
+      ]),
+    });
+
+    const respond = await invokeAbort({
+      context,
+      connId: "conn-1",
+      deviceId: "dev-1",
+      exemptRunId: "run-ownerless",
+    });
+
+    const [ok, payload] = requireLastRespondCall(respond);
+    expect(ok).toBe(true);
+    expectAbortPayload(payload, {
+      aborted: true,
+      runIds: expect.arrayContaining(["run-ownerless", "run-mine"]),
+    });
+    expect(ownerless.controller.signal.aborted).toBe(true);
+    expect(mine.controller.signal.aborted).toBe(true);
+  });
+
   it("preserves BTW runs waiting for chat admission", async () => {
     const onAuthorizedAfterQueuedAbort = vi.fn(() => true);
     const context = createChatAbortContext();
