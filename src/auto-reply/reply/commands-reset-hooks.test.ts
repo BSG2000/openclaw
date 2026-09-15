@@ -1422,6 +1422,40 @@ describe("handleCommands reset hooks", () => {
     expect(result).toBeNull();
   });
 
+  it("scopes model classification to the active agent's workspace and agentDir", async () => {
+    // applyResetModelOverride scopes its catalog load to the active agent's own
+    // agentDir/workspaceDir, so classification must mirror that scope when reading
+    // the prepared snapshot. Otherwise a plugin model published only under this
+    // agent's workspace is invisible to classification and the tail is misfiled as
+    // a plain session title instead of falling through to the reset-model resolver.
+    preparedCatalogMock.getPreparedModelCatalogSnapshot.mockImplementation(
+      (params?: { agentDir?: string; workspaceDir?: string }) =>
+        params?.agentDir === "/tmp/scoped-agent-dir" &&
+        params?.workspaceDir === "/tmp/scoped-workspace"
+          ? { entries: [{ id: "widget", name: "Widget", provider: "acme" }], routeVariants: [] }
+          : undefined,
+    );
+    const params = buildResetParams(
+      "/new acme/widget summarize this",
+      {
+        commands: { text: true },
+        channels: { discord: { allowFrom: ["*"] } },
+      } as OpenClawConfig,
+      {
+        CommandSource: "native",
+        CommandArgs: { values: { title: "acme/widget summarize this" } },
+        Provider: "discord",
+        Surface: "discord",
+      },
+    );
+    params.agentDir = "/tmp/scoped-agent-dir";
+    params.workspaceDir = "/tmp/scoped-workspace";
+
+    const result = await maybeHandleResetCommand(params);
+
+    expect(result).toBeNull();
+  });
+
   it("treats a single-word catalog display name as a session name, not a directive", async () => {
     // The reset-model resolver keys allowed models on the ID (widget-1), never on the display
     // name ("Roadmap"), so classification must not treat the display name as a directive. A

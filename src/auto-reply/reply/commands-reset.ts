@@ -135,6 +135,11 @@ async function isModelRefTail(params: ResetCommandParams, tail: string): Promise
   const catalogParams: LoadPreparedModelCatalogParams = {
     config: params.cfg,
     ...(activeAgentId ? { agentId: activeAgentId } : {}),
+    // Mirror applyResetModelOverride's catalog scope so a plugin/runtime model
+    // registered only under this agent's own agentDir/workspaceDir (not the
+    // default agent's) is classified the same way it will later be resolved.
+    ...(params.agentDir ? { agentDir: params.agentDir } : {}),
+    ...(params.workspaceDir ? { workspaceDir: params.workspaceDir } : {}),
   };
   // Mirror the canonical reset-model resolver (applyResetModelOverride) so
   // classification never diverges from what the resolver would actually select:
