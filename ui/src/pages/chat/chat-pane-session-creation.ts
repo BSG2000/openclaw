@@ -286,6 +286,12 @@ export abstract class ChatPaneSessionCreation extends ChatPaneRetainedPresentati
       // have landed a fresh incarnation, so patching the label could rename the
       // wrong session.
       if (options?.label && isCurrent() && resetResult === "completed") {
+        const labelOwner = this.headerOutcomeOwner;
+        const currentSessionId =
+          state.currentSessionId?.trim() ||
+          state.sessionsResult?.sessions
+            .find((row) => areUiSessionKeysEquivalent(row.key, previousSessionKey))
+            ?.sessionId?.trim();
         const labelAgentId =
           scopedAgentParamsForSession(state, previousSessionKey).agentId ??
           resolveAgentIdFromSessionKey(previousSessionKey);
@@ -294,16 +300,23 @@ export abstract class ChatPaneSessionCreation extends ChatPaneRetainedPresentati
           labelPatched = await sessions.patch(
             previousSessionKey,
             { label: options.label },
-            labelAgentId ? { agentId: labelAgentId } : undefined,
+            {
+              ...(labelAgentId ? { agentId: labelAgentId } : {}),
+              ...(currentSessionId ? { expectedSessionId: currentSessionId } : {}),
+            },
           );
         } catch (error: unknown) {
-          this.publishHeaderError(error);
+          if (isCurrent() && this.ownsHeaderOutcome(labelOwner)) {
+            this.publishHeaderError(error, labelOwner);
+          }
           return "consumed-error";
         }
         if (!labelPatched) {
-          state.lastError = NEW_SESSION_RENAME_FAILED_MESSAGE;
-          state.chatError = state.lastError;
-          state.requestUpdate?.();
+          if (isCurrent() && this.ownsHeaderOutcome(labelOwner)) {
+            state.lastError = NEW_SESSION_RENAME_FAILED_MESSAGE;
+            state.chatError = state.lastError;
+            state.requestUpdate?.();
+          }
           return "consumed-error";
         }
       }
