@@ -111,17 +111,21 @@ describe("delete session command", () => {
     expect(parseDeleteSessionCommand("/name Demo")).toBeNull();
   });
 
-  it("registers close/delete session commands", () => {
+  it("registers close/delete session commands as model-independent and active-run-safe", () => {
     const commands = buildBuiltinChatCommands();
     expect(commands.find((entry) => entry.key === "close")).toMatchObject({
       nativeName: "close",
       textAliases: ["/close"],
       category: "session",
+      modelIndependent: "always",
+      activeRunSafe: true,
     });
     expect(commands.find((entry) => entry.key === "delete-session")).toMatchObject({
       nativeName: "delete",
       textAliases: ["/delete"],
       category: "session",
+      modelIndependent: "always",
+      activeRunSafe: true,
     });
   });
 
